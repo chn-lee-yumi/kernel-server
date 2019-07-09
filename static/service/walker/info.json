@@ -1,0 +1,3 @@
+{
+  "description": "Walker - 用于代替snmpwalk的软件，对外提供HTTP的API。（这里的版本懒得更新，请勿使用，软件和命令行已经旧了。现已出docker版本，请在portainer上安装）"
+}

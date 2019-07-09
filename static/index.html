@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Kernel集群管理系统</title>
+    <link rel="stylesheet" href="https://cdn.bootcss.com/element-ui/2.9.2/theme-chalk/index.css">
+</head>
+<body>
+<div id="app" v-loading="loading">
+
+    <h1>Kernel集群管理系统</h1>
+
+    <el-card class="box-card" v-for="(machine,name) in machine_list" v-bind:key="name">
+        <div slot="header" class="clearfix">
+            <span>{{name}}</span>
+            <el-button style="float: right; display: none"></el-button><!--这个元素用于修复间距错误的bug-->
+            <el-button style="float: right" @click.native="delServer(name)" type="danger" icon="el-icon-delete"
+                       title="移除服务器"></el-button>
+            <el-button style="float: right" type="warning" icon="el-icon-s-tools"
+                       @click="current_opt_machine=name;init_form_visible=true" title="初始化脚本"></el-button>
+            <el-button style="float: right" type="warning" icon="el-icon-refresh" @click="updateMachine(name)"
+                       title="刷新服务"></el-button>
+            <el-button style="float: right" type="primary" icon="el-icon-circle-plus"
+                       @click="current_opt_machine=name;add_service_form_visible=true" title="添加服务"></el-button>
+            <el-tag type="success" v-if="machine['online']">在线</el-tag>
+            <el-tag type="warning" v-if="!machine['online']">离线</el-tag>
+        </div>
+        <div v-for="(status,service) in machine['enabled']" v-if="status!='unknown'&&status!='error'" class="text item">
+            <el-tag type="success">{{service}}</el-tag>
+            <el-tag type="info">{{machine["active"][service]}}</el-tag>
+            <el-tag type="info">{{status}}</el-tag>
+            <el-button type="info" @click="systemctl(name,service,'start')">start</el-button>
+            <el-button type="info" @click="systemctl(name,service,'stop')">stop</el-button>
+            <el-button type="info" @click="systemctl(name,service,'enable')">enable</el-button>
+            <el-button type="info" @click="systemctl(name,service,'disable')">disable</el-button>
+            <el-button type="danger" @click="removeService(name,service)">移除服务</el-button>
+        </div>
+    </el-card>
+
+
+    <el-button @click="add_server_form_visible = true" type="primary">添加服务器</el-button>
+    <el-button @click="updateAll" type="warning">刷新服务</el-button>
+    <a href="/logout" style="float: right"><el-button type="primary">注销</el-button></a>
+
+    <!--添加服务器的对话框-->
+    <el-dialog :visible.sync="add_server_form_visible" title="添加服务器" v-loading="loading">
+        <el-form ::model="add_server_form_visible" label-width="200px"><!-- 不知道为什么model前面要加两个:，少一个会报错 -->
+            <el-form-item label="服务器名称（仅作备注）：">
+                <el-input v-model="add_server_form.name" placeholder="nic-tech-01"></el-input>
+            </el-form-item>
+            <el-form-item label="服务器 Kernel Agent URL：">
+                <el-input v-model="add_server_form.url" placeholder="https://kernel-agent-01.gdutnic.com"></el-input>
+            </el-form-item>
+            <el-form-item>
+                <el-button type="primary" @click="addServer">添加</el-button>
+            </el-form-item>
+        </el-form>
+    </el-dialog>
+
+    <!--添加服务的对话框-->
+    <el-dialog :visible.sync="add_service_form_visible" title="部署服务" v-loading="loading">
+        <el-form ::model="add_service_form_visible"><!-- 不知道为什么model前面要加两个:，少一个会报错 -->
+            <el-form-item>
+                <el-tag type="success">{{current_opt_machine}}</el-tag>
+            </el-form-item>
+            <el-form-item v-for="(info,service) in service_list">
+                <el-button type="success" @click="deployService(current_opt_machine,service)">{{service}}
+                </el-button>
+                <span>{{info['description']}}</span>
+            </el-form-item>
+        </el-form>
+    </el-dialog>
+
+    <!--初始化脚本的对话框-->
+    <el-dialog :visible.sync="init_form_visible" title="初始化脚本（只需第一次添加服务器时执行）" v-loading="loading">
+        <el-form ::model="init_form_visible"><!-- 不知道为什么model前面要加两个:，少一个会报错 -->
+            <el-form-item>
+                <el-tag type="success">{{current_opt_machine}}</el-tag>
+            </el-form-item>
+            <el-form-item v-for="script in init_script_list">
+                <el-button type="success" @click="runInitScript(current_opt_machine,script)">{{script}}
+                </el-button>
+            </el-form-item>
+        </el-form>
+    </el-dialog>
+
+</div>
+</body>
+
+<script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script><!-- import Vue before Element -->
+<script src="https://cdn.bootcss.com/element-ui/2.9.2/index.js"></script>
+<script src="https://cdn.bootcss.com/axios/0.19.0-beta.1/axios.min.js"></script>
+<script>
+    new Vue({
+      el: '#app',
+      data: {
+          machine_list:{"加载中":["加载中"]},
+          service_list:{},
+          init_script_list: [],
+          current_opt_machine:"",
+          add_server_form_visible: false,
+          add_server_form: {
+            name: "",
+            url: ""
+          },
+          loading: false,
+          add_service_form_visible: false,
+          init_form_visible: false
+      },
+      mounted:function (){
+        this.updateStatus();
+        this.updateServiceList()
+        this.updateInitScriptList()
+        this.timer = setInterval(this.updateStatus, 60000);
+      },
+      methods: {
+        updateStatus: function () {
+          var that=this;
+          axios.get('/api/machine_list')
+              .then(function (response) {
+                console.log(response);
+                that.machine_list=response["data"];
+              })
+              .catch(function (error) {
+                console.log(error);
+              })
+              .finally(function () {
+                   console.log(that.machine_list)
+              });
+        },
+        updateServiceList: function () {
+          var that=this;
+          axios.get('/api/service_list')
+              .then(function (response) {
+                console.log(response);
+                that.service_list=response["data"];
+              })
+              .catch(function (error) {
+                console.log(error);
+              })
+              .finally(function () {
+                   console.log(that.service_list)
+              });
+        },
+        updateInitScriptList: function () {
+          var that=this;
+          axios.get('/api/init_script_list')
+              .then(function (response) {
+                console.log(response);
+                that.init_script_list=response["data"];
+              })
+              .catch(function (error) {
+                console.log(error);
+              })
+              .finally(function () {
+                   console.log(that.init_script_list)
+              });
+        },
+        addServer(){
+            console.log(this.add_server_form)
+            var that=this;
+            axios.post('/api/add_machine',this.add_server_form)
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        alert("添加成功")
+                        that.add_server_form_visible=false
+                        that.updateStatus()
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  });
+        },
+        delServer(name){
+            //TODO：加删除确认对话框
+            var that=this
+            this.loading=true
+            axios.post('/api/del_machine',{"name":name})
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        //alert("移除成功")
+                        that.updateStatus()
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.loading=false
+                  });
+        },
+        systemctl(name,service,cmd){
+            var that=this
+            this.loading=true
+            axios.post('/api/systemctl',{"name":name,"service":service,"cmd":cmd})
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        //alert("设置成功")
+                        that.updateStatus()
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.loading=false
+                  });
+        },
+        deployService(name,service){
+            var that=this
+            this.loading=true
+            axios.post('/api/deploy_service',{"name":name,"service":service})
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        alert("部署成功")
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.updateStatus()
+                    that.loading=false
+                  });
+        },
+        removeService(name,service){
+            var that=this
+            this.loading=true
+            axios.post('/api/remove_service',{"name":name,"service":service})
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        alert("移除成功")
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.updateStatus()
+                    that.loading=false
+                  });
+        },
+        runInitScript(name,script){
+            var that=this
+            this.loading=true
+            axios.post('/api/run_init_script',{"name":name,"script":script})
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        alert("运行成功")
+                        that.updateStatus()
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.loading=false
+                  });
+        },
+        updateAll(){
+            var that=this
+            this.loading=true
+            axios.get('/api/update_all')
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        that.updateStatus()
+                        that.updateServiceList()
+                        that.updateInitScriptList()
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.loading=false
+                    alert("更新成功")
+                  });
+        },
+        updateMachine(name){
+            var that=this
+            this.loading=true
+            axios.post('/api/update_machine',{"name":name})
+                  .then(function (response) {
+                    console.log(response);
+                    if(response["data"]["code"]==0){
+                        alert("更新成功")
+                        that.updateStatus()
+                    }else{
+                        alert(response["data"]["err"])
+                    }
+                  })
+                  .catch(function (error) {
+                    console.log(error);
+                  })
+                  .finally(function () {
+                    that.loading=false
+                  });
+        }
+      }
+    })
+</script>
+</html>

