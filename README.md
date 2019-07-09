@@ -144,7 +144,7 @@ sums_pack
 
 ## TODO
 
-- 增刊修改机器功能（名字、URL）
+- 增加修改机器功能（名字、URL）
 - 美化登录界面
 
 # Kernel Server 部署
@@ -184,7 +184,7 @@ systemctl restart kernel-server
 
 # 注意
 
-域名没有做单独配置，请自行修改代码中的所有相关域名。代码中，`https://kernel.gdutnic.com/`是Server的地址。
+域名没有做单独配置，请自行修改代码和脚本中的所有相关域名。代码中，`https://kernel.gdutnic.com/`是Server的地址。
 
 Server默认使用8002端口，Agent默认使用8001端口。
 
