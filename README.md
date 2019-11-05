@@ -191,3 +191,21 @@ Server默认使用8002端口，Agent默认使用8001端口。
 Agent项目地址：https://github.com/chn-lee-yumi/kernel-agent
 
 Agent编译好之后放在了`static/agent/kernel`
+
+# 屏幕截图
+
+主页
+
+![screenshot1.png](screenshot/screenshot1.png)
+
+添加Agent
+
+![screenshot2.png](screenshot/screenshot2.png)
+
+执行初始化脚本
+
+![screenshot4.png](screenshot/screenshot4.png)
+
+部署服务
+
+![screenshot3.png](screenshot/screenshot3.png)
